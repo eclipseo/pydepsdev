@@ -18,7 +18,7 @@ setuptools.setup(
     },
     license="ASL-2.0",
     license_files=["LICENSE"],
-    packages=setuptools.find_packages(),
+    packages=setuptools.find_packages(exclude=('tests', 'tests.*')),
     classifiers=[
         "Topic :: Software Development :: Libraries",
         "Development Status :: 3 - Alpha",
