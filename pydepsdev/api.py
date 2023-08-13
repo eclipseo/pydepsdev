@@ -13,7 +13,7 @@ from .exceptions import APIError
 from .utils import encode_url_param, validate_system, validate_hash
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
