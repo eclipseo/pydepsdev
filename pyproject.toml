@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydepsdev"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
   { name = "Robert-André Mauchin", email = "zebob.m@gmail.com" }
 ]
 description = "A Python library for interacting with Deps.dev API"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.78"
+requires-python = ">=3.8"
 keywords = ["api", "deps.dev"]
 classifiers = [
     "Topic :: Software Development :: Libraries",
