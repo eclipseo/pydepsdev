@@ -2,17 +2,22 @@ import aiohttp
 import asyncio
 import logging
 import random
+from typing import Any, Dict, List, Optional, Union
+
 from .constants import (
     BASE_URL,
-    DEFAULT_MAX_RETRIES,
     DEFAULT_BASE_BACKOFF,
     DEFAULT_MAX_BACKOFF,
+    DEFAULT_MAX_RETRIES,
     DEFAULT_TIMEOUT_DURATION,
 )
 from .exceptions import APIError
-from .utils import encode_url_param, validate_system, validate_hash
+from .utils import encode_url_param, validate_hash, validate_system
 
-logger = logging.getLogger(__name__)
+# A JSON‐like payload: either a dict or a list
+JSONType = Union[Dict[str, Any], List[Any]]
+
+logger: logging.Logger = logging.getLogger(__name__)
 handler = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
@@ -21,188 +26,278 @@ logger.setLevel(logging.WARNING)
 
 
 class DepsdevAPI:
+    session: aiohttp.ClientSession
+    headers: Dict[str, str]
+    timeout_duration: float
+    max_retries: int
+    base_backoff: float
+    max_backoff: float
+
     def __init__(
         self,
-        timeout_duration=DEFAULT_TIMEOUT_DURATION,
-        max_retries=DEFAULT_MAX_RETRIES,
-        base_backoff=DEFAULT_BASE_BACKOFF,
-        max_backoff=DEFAULT_MAX_BACKOFF,
-    ):
+        timeout_duration: float = DEFAULT_TIMEOUT_DURATION,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        base_backoff: float = DEFAULT_BASE_BACKOFF,
+        max_backoff: float = DEFAULT_MAX_BACKOFF,
+    ) -> None:
         self.session = aiohttp.ClientSession()
-        self.headers = {
-            "Content-Type": "application/json",
-        }
+        self.headers = {"Content-Type": "application/json"}
         self.timeout_duration = timeout_duration
         self.max_retries = max_retries
         self.base_backoff = base_backoff
         self.max_backoff = max_backoff
+
         logger.debug(
-            "DepsdevAPI initialized with params: %s, %s, %s, %s",
+            "DepsdevAPI initialized with timeout=%s, retries=%s, base_backoff=%s, max_backoff=%s",
             timeout_duration,
             max_retries,
             base_backoff,
             max_backoff,
         )
 
-    async def close(self):
+    async def close(self) -> None:
+        """Shut down the underlying HTTP session."""
         await self.session.close()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "DepsdevAPI":
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_value: Optional[BaseException],
+        traceback: Optional[Any],
+    ) -> None:
         await self.close()
 
-    async def fetch_data(self, url, params=None):
-        retries = 0
-        while retries <= self.max_retries:
+    async def fetch_data(
+        self,
+        request_url: str,
+        query_params: Optional[Dict[str, str]] = None,
+    ) -> JSONType:
+        """
+        Perform GET with retries/backoff, returning parsed JSON.
+        Raises APIError on client (4xx) or server (5xx) failures.
+        """
+        attempt_count: int = 0
+
+        while attempt_count <= self.max_retries:
             logger.info(
-                f"Making request to {url} with params {params}. Attempt {retries + 1} of {self.max_retries + 1}"
+                "Requesting %s with params %s (attempt %s/%s)",
+                request_url,
+                query_params,
+                attempt_count + 1,
+                self.max_retries + 1,
             )
             try:
                 async with self.session.get(
-                    url,
+                    request_url,
                     headers=self.headers,
-                    params=params,
+                    params=query_params,
                     timeout=self.timeout_duration,
-                ) as response:
-                    data = await response.json()
-                    logger.debug(f"Successful request to {url}. Received data: {data}")
-                    return data
-            except aiohttp.ClientResponseError as e:
+                ) as http_response:
+                    response_json: JSONType = await http_response.json()
+                    logger.debug(
+                        "Success %s -> %s", request_url, response_json
+                    )
+                    return response_json
+
+            except aiohttp.ClientResponseError as error:
+                status_code: int = error.status
+                error_message: str = error.message
                 logger.warning(
-                    f"ClientResponseError on {url}. Status: {e.status}. Retrying..."
+                    "ClientResponseError %s (status=%s), retrying...",
+                    request_url,
+                    status_code,
                 )
-                if 500 <= e.status < 600:
-                    if retries < self.max_retries:
-                        backoff = min(
-                            self.base_backoff * (2**retries)
-                            + random.uniform(0, 0.1 * (2**retries)),
+                # 5xx => retryable
+                if 500 <= status_code < 600:
+                    if attempt_count < self.max_retries:
+                        sleep_duration = min(
+                            self.base_backoff * (2**attempt_count)
+                            + random.uniform(0, 0.1 * (2**attempt_count)),
                             self.max_backoff,
                         )
-                        await asyncio.sleep(backoff)
-                        retries += 1
+                        await asyncio.sleep(sleep_duration)
+                        attempt_count += 1
                     else:
-                        # After exhausting the retries
                         raise APIError(
-                            e.status,
-                            f"Server error: {e.message}. Failed after {self.max_retries} retries",
+                            status_code,
+                            f"Server error after {self.max_retries} retries: "
+                            f"{error_message}",
                         )
                 else:
-                    # For 4xx errors, we just raise the error without retrying
-                    raise APIError(e.status, f"Client error: {e.message}")
+                    # 4xx => fail fast
+                    raise APIError(status_code, f"Client error: {error_message}")
 
-            except (aiohttp.ServerTimeoutError, aiohttp.ClientConnectionError) as e:
-                logger.warning(f"Error {str(e)} on {url}. Retrying...")
-                if retries < self.max_retries:
-                    backoff = min(
-                        self.base_backoff * (2**retries)
-                        + random.uniform(0, 0.1 * (2**retries)),
+            except (
+                aiohttp.ServerTimeoutError,
+                aiohttp.ClientConnectionError,
+            ) as network_error:
+                network_error_str: str = str(network_error)
+                logger.warning(
+                    "Network error on %s: %s, retrying...",
+                    request_url,
+                    network_error_str,
+                )
+                if attempt_count < self.max_retries:
+                    sleep_duration = min(
+                        self.base_backoff * (2**attempt_count)
+                        + random.uniform(0, 0.1 * (2**attempt_count)),
                         self.max_backoff,
                     )
-                    await asyncio.sleep(backoff)
-                    retries += 1
+                    await asyncio.sleep(sleep_duration)
+                    attempt_count += 1
                 else:
                     raise APIError(
                         None,
-                        f"Failed after {self.max_retries} retries due to: {str(e)}",
+                        f"Network failure after {self.max_retries} retries: "
+                        f"{network_error_str}",
                     )
 
-    # Endpoint Functions
+        # Should never reach here
+        raise APIError(None, "Exceeded retry loop unexpectedly")
 
-    async def get_package(self, system, package_name):
-        """Return package information including available versions."""
-        logger.info(
-            f"Fetching package for system: {system} and package_name: {package_name}"
-        )
-        validate_system(system)
-        encoded_package_name = encode_url_param(package_name)
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}"
-        return await self.fetch_data(url)
+    # ──────── Endpoint Methods ─────────────────────────────────────────────────
 
-    async def get_version(self, system, package_name, version):
-        """Return detailed information about a specific package version."""
+    async def get_package(
+        self, system_name: str, package_name: str
+    ) -> JSONType:
+        """Fetch basic info about a package, including available versions."""
         logger.info(
-            f"Fetching version data for system: {system}, package_name: {package_name}, version: {version}"
+            "get_package(system=%s, package_name=%s)",
+            system_name,
+            package_name,
         )
-        validate_system(system)
-        encoded_package_name = encode_url_param(package_name)
+        validate_system(system_name)
+        encoded_name = encode_url_param(package_name)
+        endpoint_url = f"{BASE_URL}/systems/{system_name}/packages/{encoded_name}"
+        return await self.fetch_data(endpoint_url)
+
+    async def get_version(
+        self, system_name: str, package_name: str, version: str
+    ) -> JSONType:
+        """Fetch detailed info about a specific package version."""
+        logger.info(
+            "get_version(system=%s, package=%s, version=%s)",
+            system_name,
+            package_name,
+            version,
+        )
+        validate_system(system_name)
+        encoded_name = encode_url_param(package_name)
         encoded_version = encode_url_param(version)
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}/versions/{encoded_version}"
-        return await self.fetch_data(url)
-
-    async def get_requirements(self, system, package_name, version):
-        """Return the requirements for a specific package version."""
-        logger.info(
-            f"Fetching requirements for system: {system}, package_name: {package_name}, version: {version}"
+        endpoint_url = (
+            f"{BASE_URL}/systems/{system_name}/packages/{encoded_name}"
+            f"/versions/{encoded_version}"
         )
-        if system.upper() != "NUGET":
-            raise ValueError("GetRequirements is currently only available for NuGet.")
+        return await self.fetch_data(endpoint_url)
 
-        encoded_package_name = encode_url_param(package_name)
-        encoded_version = encode_url_param(version)
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}/versions/{encoded_version}:requirements"
-        return await self.fetch_data(url)
+    async def get_version_batch(
+        self, system_name: str, package_name: str, version: str
+    ) -> JSONType:
+        """
+        Alias for get_version — provided for batch‐style compatibility.
+        """
+        return await self.get_version(system_name, package_name, version)
 
-    async def get_dependencies(self, system, package_name, version):
-        """Return the resolved dependency graph for a specific package version."""
+    async def get_requirements(
+        self, system_name: str, package_name: str, version: str
+    ) -> JSONType:
+        """Fetch the declared requirements for a NuGet package version."""
         logger.info(
-            f"Fetching dependencies for system: {system}, package_name: {package_name}, version: {version}"
+            "get_requirements(system=%s, package=%s, version=%s)",
+            system_name,
+            package_name,
+            version,
         )
-        validate_system(system)
-        encoded_package_name = encode_url_param(package_name)
+        if system_name.upper() != "NUGET":
+            raise ValueError("get_requirements is only available for NuGet.")
+        encoded_name = encode_url_param(package_name)
         encoded_version = encode_url_param(version)
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}/versions/{encoded_version}:dependencies"
-        return await self.fetch_data(url)
+        endpoint_url = (
+            f"{BASE_URL}/systems/{system_name}/packages/{encoded_name}"
+            f"/versions/{encoded_version}:requirements"
+        )
+        return await self.fetch_data(endpoint_url)
 
-    async def get_project(self, project_id):
-        """Return information about projects hosted by GitHub, GitLab, or BitBucket."""
-        logger.info(f"Fetching project with ID: {project_id}")
-        encoded_project_id = encode_url_param(project_id)
-        url = f"{BASE_URL}/projects/{encoded_project_id}"
-        return await self.fetch_data(url)
+    async def get_dependencies(
+        self, system_name: str, package_name: str, version: str
+    ) -> JSONType:
+        """Fetch the resolved dependency graph for a package version."""
+        logger.info(
+            "get_dependencies(system=%s, package=%s, version=%s)",
+            system_name,
+            package_name,
+            version,
+        )
+        validate_system(system_name)
+        encoded_name = encode_url_param(package_name)
+        encoded_version = encode_url_param(version)
+        endpoint_url = (
+            f"{BASE_URL}/systems/{system_name}/packages/{encoded_name}"
+            f"/versions/{encoded_version}:dependencies"
+        )
+        return await self.fetch_data(endpoint_url)
 
-    async def get_project_package_versions(self, project_id):
-        """Return the package versions created from the specified source code repository."""
-        logger.info(f"Fetching package versions for project ID: {project_id}")
-        encoded_project_id = encode_url_param(project_id)
-        url = f"{BASE_URL}/projects/{encoded_project_id}:packageversions"
-        return await self.fetch_data(url)
+    async def get_project(self, project_id: str) -> JSONType:
+        """Fetch metadata about a GitHub/GitLab/Bitbucket project."""
+        logger.info("get_project(project_id=%s)", project_id)
+        encoded_id = encode_url_param(project_id)
+        endpoint_url = f"{BASE_URL}/projects/{encoded_id}"
+        return await self.fetch_data(endpoint_url)
 
-    async def get_advisory(self, advisory_id):
-        """Return information about a security advisory from OSV."""
-        logger.info(f"Fetching advisory with ID: {advisory_id}")
-        encoded_advisory_id = encode_url_param(advisory_id)
-        url = f"{BASE_URL}/advisories/{encoded_advisory_id}"
-        return await self.fetch_data(url)
+    async def get_project_package_versions(
+        self, project_id: str
+    ) -> JSONType:
+        """Fetch package versions derived from a source‐control project."""
+        logger.info("get_project_package_versions(project_id=%s)", project_id)
+        encoded_id = encode_url_param(project_id)
+        endpoint_url = f"{BASE_URL}/projects/{encoded_id}:packageversions"
+        return await self.fetch_data(endpoint_url)
+
+    async def get_advisory(self, advisory_id: str) -> JSONType:
+        """Fetch a security advisory by OSV ID."""
+        logger.info("get_advisory(advisory_id=%s)", advisory_id)
+        encoded_id = encode_url_param(advisory_id)
+        endpoint_url = f"{BASE_URL}/advisories/{encoded_id}"
+        return await self.fetch_data(endpoint_url)
 
     async def query_package_versions(
         self,
-        hash_type=None,
-        hash_value=None,
-        version_system=None,
-        version_name=None,
-        version=None,
-    ):
-        """Query package versions based on content hash or version key."""
+        hash_type: Optional[str] = None,
+        hash_value: Optional[str] = None,
+        version_system: Optional[str] = None,
+        version_name: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> JSONType:
+        """
+        Query package versions by content hash or version key fields.
+        """
         logger.info(
-            f"Querying package versions with hash_type: {hash_type}, hash_value: {hash_value}, version_system: {version_system}, version_name: {version_name}, version: {version}"
+            "query_package_versions(hash_type=%s, hash_value=%s, "
+            "version_system=%s, version_name=%s, version=%s)",
+            hash_type,
+            hash_value,
+            version_system,
+            version_name,
+            version,
         )
         if hash_type:
             validate_hash(hash_type)
         if version_system:
             validate_system(version_system)
-        # Construct URL with appropriate query parameters
-        query_params = {}
-        if hash_type and hash_value:
-            query_params["hash.type"] = hash_type
-            query_params["hash.value"] = hash_value
-        if version_system:
-            query_params["versionKey.system"] = version_system
-        if version_name:
-            query_params["versionKey.name"] = version_name
-        if version:
-            query_params["versionKey.version"] = version
 
-        url = f"{BASE_URL}/query"
-        return await self.fetch_data(url, params=query_params)
+        query_parameters: Dict[str, str] = {}
+        if hash_type and hash_value:
+            query_parameters["hash.type"] = hash_type
+            query_parameters["hash.value"] = hash_value
+        if version_system:
+            query_parameters["versionKey.system"] = version_system
+        if version_name:
+            query_parameters["versionKey.name"] = version_name
+        if version:
+            query_parameters["versionKey.version"] = version
+
+        endpoint_url = f"{BASE_URL}/query"
+        return await self.fetch_data(endpoint_url, query_parameters)
