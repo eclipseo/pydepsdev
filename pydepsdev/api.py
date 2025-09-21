@@ -191,9 +191,7 @@ class DepsdevAPI:
 
         raise APIError(None, "Exceeded retry limit")
 
-    def _build_path(
-        self, *segments: str, suffix: str = ""
-    ) -> str:
+    def _build_path(self, *segments: str, suffix: str = "") -> str:
         """
         Build a full URL from base + path segments + optional suffix.
         """
@@ -223,9 +221,7 @@ class DepsdevAPI:
         url = self._build_path(*segments, suffix=suffix)
         return await self.fetch_data(url, method="POST", json_body=json_body)
 
-    async def get_package(
-        self, system_name: str, package_name: str
-    ) -> JSONType:
+    async def get_package(self, system_name: str, package_name: str) -> JSONType:
         """
         Fetch basic package info including available versions.
 
@@ -307,13 +303,15 @@ class DepsdevAPI:
         payload: Dict[str, Any] = {"requests": []}
         for system, pkg, ver in version_requests:
             validate_system(system)
-            payload["requests"].append({
-                "versionKey": {
-                    "system": system,
-                    "name": pkg,
-                    "version": ver,
+            payload["requests"].append(
+                {
+                    "versionKey": {
+                        "system": system,
+                        "name": pkg,
+                        "version": ver,
+                    }
                 }
-            })
+            )
         if page_token:
             payload["pageToken"] = page_token
 
@@ -568,9 +566,7 @@ class DepsdevAPI:
                 break
         return all_responses
 
-    async def get_project_package_versions(
-        self, project_id: str
-    ) -> JSONType:
+    async def get_project_package_versions(self, project_id: str) -> JSONType:
         """
         Fetch package versions derived from a project.
 
@@ -584,9 +580,7 @@ class DepsdevAPI:
             APIError: On request failure.
         """
         id_enc = encode_url_param(project_id)
-        return await self._get(
-            "projects", id_enc, suffix=":packageversions"
-        )
+        return await self._get("projects", id_enc, suffix=":packageversions")
 
     async def get_advisory(self, advisory_id: str) -> JSONType:
         """
@@ -731,9 +725,7 @@ class DepsdevAPI:
 
         return await self._post("purlbatch", json_body=payload)
 
-    async def get_all_purl_lookup_batch(
-        self, purls: List[str]
-    ) -> List[Dict[str, Any]]:
+    async def get_all_purl_lookup_batch(self, purls: List[str]) -> List[Dict[str, Any]]:
         """
         Convenience wrapper to retrieve all pages for a given PurlLookup
         batch.
