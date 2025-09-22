@@ -16,8 +16,15 @@
 #
 
 import urllib.parse
-from typing import NoReturn
-from .constants import SUPPORTED_SYSTEMS, SUPPORTED_HASHES
+from typing import Optional, Sequence
+from .constants import (
+    SUPPORTED_SYSTEMS,
+    SUPPORTED_SYSTEMS_REQUIREMENTS,
+    SUPPORTED_SYSTEMS_DEPENDENCIES,
+    SUPPORTED_SYSTEMS_DEPENDENTS,
+    SUPPORTED_SYSTEMS_CAPABILITIES,
+    SUPPORTED_SYSTEMS_QUERY,
+)
 
 
 def encode_url_param(param: str) -> str:
@@ -33,22 +40,26 @@ def encode_url_param(param: str) -> str:
     return urllib.parse.quote_plus(param)
 
 
-def validate_system(system: str) -> None:
+def validate_system(
+    system: str,
+    allowed_systems: Optional[Sequence[str]] = None,
+) -> None:
     """
     Validate that the given system identifier is supported.
+    If allowed_systems is None, we fall back to SUPPORTED_SYSTEMS.
 
     Args:
-        system (str): The package system name (e.g. "npm", "pypi") to validate.
+        system (str): e.g. "npm", "PYPI", etc.
+        allowed_systems (Optional[Sequence[str]]):
+             A specific SUPPORTED_* constant, or None for all.
 
     Raises:
-        ValueError: If `system` (case-insensitive) is not in SUPPORTED_SYSTEMS.
+        ValueError: if system.upper() not in allowed_systems.
     """
     normalized = system.upper()
-    if normalized not in SUPPORTED_SYSTEMS:
-        raise ValueError(
-            "This operation is currently only available for "
-            f"{', '.join(SUPPORTED_SYSTEMS)}."
-        )
+    allowed = allowed_systems or SUPPORTED_SYSTEMS
+    if normalized not in allowed:
+        raise ValueError(f"This operation is only available for: {', '.join(allowed)}")
 
 
 def validate_hash(hash_type: str) -> None:

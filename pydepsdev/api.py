@@ -27,6 +27,12 @@ from .constants import (
     DEFAULT_MAX_BACKOFF,
     DEFAULT_MAX_RETRIES,
     DEFAULT_TIMEOUT_DURATION,
+    SUPPORTED_SYSTEMS,
+    SUPPORTED_SYSTEMS_REQUIREMENTS,
+    SUPPORTED_SYSTEMS_DEPENDENCIES,
+    SUPPORTED_SYSTEMS_DEPENDENTS,
+    SUPPORTED_SYSTEMS_CAPABILITIES,
+    SUPPORTED_SYSTEMS_QUERY,
 )
 from .exceptions import APIError
 from .utils import encode_url_param, validate_hash, validate_system
@@ -362,8 +368,7 @@ class DepsdevAPI:
             ValueError: If system_name is not "NUGET".
             APIError: On request failure.
         """
-        if system_name.upper() != "NUGET":
-            raise ValueError("get_requirements is only for NuGet.")
+        validate_system(system_name, SUPPORTED_SYSTEMS_REQUIREMENTS)
         name_enc = encode_url_param(package_name)
         ver_enc = encode_url_param(version)
         return await self._get(
@@ -394,7 +399,7 @@ class DepsdevAPI:
             ValueError: If system_name is invalid.
             APIError: On request failure.
         """
-        validate_system(system_name)
+        validate_system(system_name, SUPPORTED_SYSTEMS_DEPENDENCIES)
         name_enc = encode_url_param(package_name)
         ver_enc = encode_url_param(version)
         return await self._get(
@@ -429,7 +434,7 @@ class DepsdevAPI:
             ValueError: If system_name is invalid.
             APIError: On request failure.
         """
-        validate_system(system_name)
+        validate_system(system_name, SUPPORTED_SYSTEMS_DEPENDENTS)
         name_enc = encode_url_param(package_name)
         ver_enc = encode_url_param(version)
         return await self._get(
@@ -470,8 +475,7 @@ class DepsdevAPI:
             ValueError: If system_name is not "GO".
             APIError: On request failure.
         """
-        if system_name.upper() != "GO":
-            raise ValueError("get_capabilities is only for GO.")
+        validate_system(system_name, SUPPORTED_SYSTEMS_CAPABILITIES)
         name_enc = encode_url_param(package_name)
         ver_enc = encode_url_param(version)
         return await self._get(
@@ -653,7 +657,7 @@ class DepsdevAPI:
         if hash_type and hash_value:
             validate_hash(hash_type)
         if version_system:
-            validate_system(version_system)
+            validate_system(version_system, SUPPORTED_SYSTEMS_QUERY)
 
         params: Dict[str, str] = {}
         if hash_type and hash_value:
