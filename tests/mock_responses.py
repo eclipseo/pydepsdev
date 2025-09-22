@@ -325,70 +325,50 @@ GET_ADVISORY_RESPONSE = {
 
 
 GET_QUERY_RESPONSE = {
-  "results": [
-    {
-      "version": {
-        "versionKey": {
-          "system": "NPM",
-          "name": "react",
-          "version": "18.2.0"
-        },
-        "purl": "pkg:npm/react@18.2.0",
-        "publishedAt": "2022-06-14T19:46:38Z",
-        "isDefault": False,
-        "isDeprecated": False,
-        "licenses": [
-          "MIT"
-        ],
-        "licenseDetails": [
-          {
-            "license": "MIT",
-            "spdx": "MIT"
-          }
-        ],
-        "advisoryKeys": [],
-        "links": [
-          {
-            "label": "HOMEPAGE",
-            "url": "https://reactjs.org/"
-          },
-          {
-            "label": "ISSUE_TRACKER",
-            "url": "https://github.com/facebook/react/issues"
-          },
-          {
-            "label": "ORIGIN",
-            "url": "https://registry.npmjs.org/react/18.2.0"
-          },
-          {
-            "label": "SOURCE_REPO",
-            "url": "git+https://github.com/facebook/react.git"
-          }
-        ],
-        "slsaProvenances": [],
-        "attestations": [],
-        "registries": [
-          "https://registry.npmjs.org/"
-        ],
-        "relatedProjects": [
-          {
-            "projectKey": {
-              "id": "github.com/facebook/react"
+    "results": [
+        {
+            "version": {
+                "versionKey": {"system": "NPM", "name": "react", "version": "18.2.0"},
+                "purl": "pkg:npm/react@18.2.0",
+                "publishedAt": "2022-06-14T19:46:38Z",
+                "isDefault": False,
+                "isDeprecated": False,
+                "licenses": ["MIT"],
+                "licenseDetails": [{"license": "MIT", "spdx": "MIT"}],
+                "advisoryKeys": [],
+                "links": [
+                    {"label": "HOMEPAGE", "url": "https://reactjs.org/"},
+                    {
+                        "label": "ISSUE_TRACKER",
+                        "url": "https://github.com/facebook/react/issues",
+                    },
+                    {
+                        "label": "ORIGIN",
+                        "url": "https://registry.npmjs.org/react/18.2.0",
+                    },
+                    {
+                        "label": "SOURCE_REPO",
+                        "url": "git+https://github.com/facebook/react.git",
+                    },
+                ],
+                "slsaProvenances": [],
+                "attestations": [],
+                "registries": ["https://registry.npmjs.org/"],
+                "relatedProjects": [
+                    {
+                        "projectKey": {"id": "github.com/facebook/react"},
+                        "relationProvenance": "UNVERIFIED_METADATA",
+                        "relationType": "ISSUE_TRACKER",
+                    },
+                    {
+                        "projectKey": {"id": "github.com/facebook/react"},
+                        "relationProvenance": "UNVERIFIED_METADATA",
+                        "relationType": "SOURCE_REPO",
+                    },
+                ],
+                "upstreamIdentifiers": [],
             },
-            "relationProvenance": "UNVERIFIED_METADATA",
-            "relationType": "ISSUE_TRACKER"
-          },
-          {
-            "projectKey": {
-              "id": "github.com/facebook/react"
-            },
-            "relationProvenance": "UNVERIFIED_METADATA",
-            "relationType": "SOURCE_REPO"
-          }
-        ],
-        "upstreamIdentifiers": []
-      },
-      "artifacts": []
-    }
-  ]
+            "artifacts": [],
+        }
+    ]
 }
