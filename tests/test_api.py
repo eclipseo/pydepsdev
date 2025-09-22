@@ -1,11 +1,15 @@
+# tests/test_api.py
+
 import pytest
-import json
+import pytest_asyncio
 import aiohttp
 from aioresponses import aioresponses
+
 from pydepsdev.api import DepsdevAPI
 from pydepsdev.exceptions import APIError
 from pydepsdev.utils import encode_url_param
 from pydepsdev.constants import BASE_URL
+
 from .mock_responses import (
     GET_PACKAGE_RESPONSE,
     GET_VERSION_RESPONSE,
@@ -17,144 +21,147 @@ from .mock_responses import (
 )
 
 
+@pytest_asyncio.fixture
+async def api():
+    """
+    Provide a DepsdevAPI with fast retry parameters.
+    The ClientSession is created inside the running loop.
+    """
+    client = DepsdevAPI(max_retries=1, base_backoff=0.01, max_backoff=0.01)
+    yield client
+    await client.close()
+
+
+@pytest.fixture
+def m():
+    """Provide an aioresponses mock context."""
+    with aioresponses() as mock:
+        yield mock
+
+
 @pytest.mark.asyncio
-async def test_get_package_success():
-    package_name = "@colors/colors"
-    encoded_package_name = encode_url_param(package_name)
+async def test_get_package_success(api, m):
+    pkg = "@colors/colors"
     system = "npm"
+    url = f"{BASE_URL}/systems/{system}/packages/{encode_url_param(pkg)}"
+    m.get(url, status=200, payload=GET_PACKAGE_RESPONSE)
 
-    with aioresponses() as m:
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}"
-        m.get(url, status=200, payload=GET_PACKAGE_RESPONSE)
-
-        async with DepsdevAPI() as api:
-            result = await api.get_package(system, package_name)
-            assert result == GET_PACKAGE_RESPONSE
+    result = await api.get_package(system, pkg)
+    assert result == GET_PACKAGE_RESPONSE
 
 
 @pytest.mark.asyncio
-async def test_get_package_timeout_and_retries():
-    package_name = "@colors/colors"
-    encoded_package_name = encode_url_param(package_name)
+async def test_get_package_network_failure(api, m):
+    pkg = "foo"
     system = "npm"
+    url = f"{BASE_URL}/systems/{system}/packages/{encode_url_param(pkg)}"
+    # every attempt times out
+    m.get(url, exception=aiohttp.ServerTimeoutError())
 
-    with aioresponses() as m:
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}"
-        # Simulating timeout
-        m.get(url, exception=aiohttp.ServerTimeoutError())
-
-        async with DepsdevAPI(max_retries=2, base_backoff=0.01) as api:
-            with pytest.raises(APIError) as exc_info:
-                await api.get_package(system, package_name)
-            assert "Failed after 2 retries" in str(exc_info.value)
+    with pytest.raises(APIError) as exc:
+        await api.get_package(system, pkg)
+    assert "Network failure" in str(exc.value)
 
 
 @pytest.mark.asyncio
-async def test_get_version_success():
-    package_name = "@colors/colors"
-    encoded_package_name = encode_url_param(package_name)
+async def test_get_version_success(api, m):
+    pkg = "@colors/colors"
+    system = "npm"
     version = "1.4.0"
-    system = "npm"
+    url = (
+        f"{BASE_URL}/systems/{system}"
+        f"/packages/{encode_url_param(pkg)}"
+        f"/versions/{encode_url_param(version)}"
+    )
+    m.get(url, status=200, payload=GET_VERSION_RESPONSE)
 
-    with aioresponses() as m:
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}/versions/{version}"
-        m.get(url, status=200, payload=GET_VERSION_RESPONSE)
-
-        async with DepsdevAPI() as api:
-            result = await api.get_version(system, package_name, version)
-            assert result == GET_VERSION_RESPONSE
+    result = await api.get_version(system, pkg, version)
+    assert result == GET_VERSION_RESPONSE
 
 
 @pytest.mark.asyncio
-async def test_get_requirements_success():
+async def test_get_requirements_success(api, m):
     system = "nuget"
-    package_name = "castle.core"
-    encoded_package_name = encode_url_param(package_name)
+    pkg = "castle.core"
     version = "5.1.1"
+    url = (
+        f"{BASE_URL}/systems/{system}"
+        f"/packages/{encode_url_param(pkg)}"
+        f"/versions/{encode_url_param(version)}:requirements"
+    )
+    m.get(url, status=200, payload=GET_REQUIREMENTS_RESPONSE)
 
-    with aioresponses() as m:
-        encoded_version = encode_url_param(version)
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}/versions/{version}:requirements"
-        m.get(url, status=200, payload=GET_REQUIREMENTS_RESPONSE)
-
-        async with DepsdevAPI() as api:
-            result = await api.get_requirements(system, package_name, version)
-            assert result == GET_REQUIREMENTS_RESPONSE
-
-
-@pytest.mark.asyncio
-async def test_get_requirements_wrong_system():
-    with pytest.raises(ValueError) as exc_info:
-        async with DepsdevAPI() as api:
-            await api.get_requirements("npm", "somepackage", "1.0.0")
-        assert "currently only available for NuGet" in str(exc_info.value)
+    result = await api.get_requirements(system, pkg, version)
+    assert result == GET_REQUIREMENTS_RESPONSE
 
 
 @pytest.mark.asyncio
-async def test_get_dependencies_success():
+async def test_get_requirements_wrong_system(api):
+    with pytest.raises(ValueError):
+        await api.get_requirements("npm", "foo", "1.0.0")
+
+
+@pytest.mark.asyncio
+async def test_get_dependencies_success(api, m):
     system = "npm"
-    package_name = "@colors/colors"
-    encoded_package_name = encode_url_param(package_name)
+    pkg = "@colors/colors"
     version = "1.4.0"
+    url = (
+        f"{BASE_URL}/systems/{system}"
+        f"/packages/{encode_url_param(pkg)}"
+        f"/versions/{encode_url_param(version)}:dependencies"
+    )
+    m.get(url, status=200, payload=GET_DEPENDENCIES_RESPONSE)
 
-    with aioresponses() as m:
-        url = f"{BASE_URL}/systems/{system}/packages/{encoded_package_name}/versions/{version}:dependencies"
-        m.get(url, status=200, payload=GET_DEPENDENCIES_RESPONSE)
-
-        async with DepsdevAPI() as api:
-            result = await api.get_dependencies(system, package_name, version)
-            assert result == GET_DEPENDENCIES_RESPONSE
-
-
-@pytest.mark.asyncio
-async def test_get_project_success():
-    project_id = "github.com/pnuckowski/aioresponses"
-    encoded_project_id = encode_url_param(project_id)
-
-    with aioresponses() as m:
-        url = f"{BASE_URL}/projects/{encoded_project_id}"
-        m.get(url, status=200, payload=GET_PROJECT_RESPONSE)
-
-        async with DepsdevAPI() as api:
-            result = await api.get_project(project_id)
-            assert result == GET_PROJECT_RESPONSE
+    result = await api.get_dependencies(system, pkg, version)
+    assert result == GET_DEPENDENCIES_RESPONSE
 
 
 @pytest.mark.asyncio
-async def test_get_advisory_success():
-    advisory_id = "GHSA-2qrg-x229-3v8q"
-    encoded_advisory_id = encode_url_param(advisory_id)
+async def test_get_project_success(api, m):
+    pid = "github.com/pnuckowski/aioresponses"
+    url = f"{BASE_URL}/projects/{encode_url_param(pid)}"
+    m.get(url, status=200, payload=GET_PROJECT_RESPONSE)
 
-    with aioresponses() as m:
-        url = f"{BASE_URL}/advisories/{encoded_advisory_id}"
-        m.get(url, status=200, payload=GET_ADVISORY_RESPONSE)
-
-        async with DepsdevAPI() as api:
-            result = await api.get_advisory(advisory_id)
-            assert result == GET_ADVISORY_RESPONSE
+    result = await api.get_project(pid)
+    assert result == GET_PROJECT_RESPONSE
 
 
 @pytest.mark.asyncio
-async def test_query_package_versions_success():
-    package_name = "@colors/colors"
-    encoded_package_name = encode_url_param(package_name)
+async def test_get_advisory_success(api, m):
+    aid = "GHSA-2qrg-x229-3v8q"
+    url = f"{BASE_URL}/advisories/{encode_url_param(aid)}"
+    m.get(url, status=200, payload=GET_ADVISORY_RESPONSE)
+
+    result = await api.get_advisory(aid)
+    assert result == GET_ADVISORY_RESPONSE
+
+
+@pytest.mark.asyncio
+async def test_query_package_versions_success(api, m):
     system = "npm"
+    pkg = "react"
     version = "18.2.0"
+    qs = (
+        f"versionKey.system={system}"
+        f"&versionKey.name={encode_url_param(pkg)}"
+        f"&versionKey.version={encode_url_param(version)}"
+    )
+    url = f"{BASE_URL}/query?{qs}"
+    m.get(url, status=200, payload=GET_QUERY_RESPONSE)
 
-    with aioresponses() as m:
-        url = f"{BASE_URL}/query?versionKey.name={encoded_package_name}&versionKey.system={system}&versionKey.version={version}"
-        m.get(url, status=200, payload=GET_QUERY_RESPONSE)
-
-        async with DepsdevAPI() as api:
-            result = await api.query_package_versions(
-                version_system=system, version_name=package_name, version=version
-            )
-            assert result == GET_QUERY_RESPONSE
+    result = await api.query_package_versions(
+        version_system=system,
+        version_name=pkg,
+        version=version,
+    )
+    assert result == GET_QUERY_RESPONSE
 
 
 @pytest.mark.asyncio
-async def test_session_closing():
-    async with DepsdevAPI() as api:
-        assert not api.session.closed
-
-    assert api.session.closed
+async def test_context_manager_closes_session():
+    client = DepsdevAPI(max_retries=0)
+    assert not client.session.closed
+    async with client:
+        pass
+    assert client.session.closed
