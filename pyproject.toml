@@ -4,18 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydepsdev"
-version = "0.1.2"
+version = "0.2.0"
 authors = [
-  { name = "Robert-André Mauchin", email = "zebob.m@gmail.com" }
+  { name = "Robert-André Mauchin", email = "eclipseo@mauchin.fr" }
 ]
-description = "A Python library for interacting with Deps.dev API"
+description = "A Python library for interacting with Open Source Insights API (deps.dev)"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.8"
-keywords = ["api", "deps.dev"]
+keywords = ["Open Source Insights", "api", "deps.dev"]
 classifiers = [
     "Topic :: Software Development :: Libraries",
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -30,16 +30,7 @@ dependencies = [
 "Repository" = "https://github.com/eclipseo/pydepsdev.git"
 "Bug Tracker" = "https://github.com/eclipseo/pydepsdev/issues"
 
-[tool.tox]
-legacy_tox_ini = """
-[tox]
-envlist = py38, py39, py310, py311, lint
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
-[testenv]
-deps = pytest >= 3.0.0, aioresponses, pytest-asyncio
-commands = pytest
-
-[testenv:lint]
-deps = black
-commands = black pydepsdev
-"""
