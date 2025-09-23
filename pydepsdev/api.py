@@ -48,7 +48,7 @@ logger.setLevel(logging.WARNING)
 
 
 class DepsdevAPI:
-    session: aiohttp.ClientSession
+    session: Optional[aiohttp.ClientSession]
     headers: Dict[str, str]
     timeout_duration: float
     max_retries: int
@@ -71,7 +71,7 @@ class DepsdevAPI:
             base_backoff (float): Initial backoff interval in seconds.
             max_backoff (float): Maximum backoff interval in seconds.
         """
-        self.session = aiohttp.ClientSession()
+        self.session = None
         self.headers = {"Content-Type": "application/json"}
         self.timeout_duration = timeout_duration
         self.max_retries = max_retries
@@ -85,6 +85,18 @@ class DepsdevAPI:
             max_backoff,
         )
 
+    async def _getsession(self) -> aiohttp.ClientSession:
+        """
+        Lazily instantiate and return an aiohttp.ClientSession
+        within a running event loop.
+
+        Returns:
+            aiohttp.ClientSession: The current aiohttp client session.
+        """
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
+        return self.session
+
     async def close(self) -> None:
         """
         Close the underlying HTTP session.
@@ -92,15 +104,18 @@ class DepsdevAPI:
         Returns:
             None
         """
-        await self.session.close()
+        if self.session is not None:
+            await self.session.close()
+            self.session = None
 
     async def __aenter__(self) -> "DepsdevAPI":
         """
-        Enter the async context.
+        Enter the async context. Ensures the session is created.
 
         Returns:
             DepsdevAPI: The current API client instance.
         """
+        await self._getsession()
         return self
 
     async def __aexit__(
@@ -145,6 +160,7 @@ class DepsdevAPI:
         Raises:
             APIError: On HTTP client/server error or network failure.
         """
+        session = await self._getsession()
         attempt = 0
         while attempt <= self.max_retries:
             logger.info(
@@ -156,7 +172,7 @@ class DepsdevAPI:
                 self.max_retries + 1,
             )
             try:
-                async with self.session.request(
+                async with session.request(
                     method,
                     request_url,
                     headers=self.headers,
