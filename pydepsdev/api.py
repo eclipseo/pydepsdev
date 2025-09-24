@@ -19,6 +19,8 @@ import aiohttp
 import asyncio
 import logging
 import random
+import base64
+import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .constants import (
@@ -35,9 +37,15 @@ from .constants import (
     SUPPORTED_SYSTEMS_QUERY,
 )
 from .exceptions import APIError
-from .utils import encode_url_param, validate_hash, validate_system
+from .utils import (
+    encode_url_param,
+    normalize_package,
+    validate_hash,
+    validate_system,
+)
 
 JSONType = Union[Dict[str, Any], List[Any]]
+PEP503_NORMALIZE = re.compile(r"[-_.]+")
 
 logger: logging.Logger = logging.getLogger(__name__)
 handler = logging.StreamHandler()
@@ -216,6 +224,13 @@ class DepsdevAPI:
     def _build_path(self, *segments: str, suffix: str = "") -> str:
         """
         Build a full URL from base + path segments + optional suffix.
+
+        Args:
+            *segments (str): Path segments to join with '/'.
+            suffix (str): Optional suffix (e.g. ":dependencies").
+
+        Returns:
+            str: Full URL.
         """
         path = "/".join(segments)
         if suffix:
@@ -230,6 +245,14 @@ class DepsdevAPI:
     ) -> JSONType:
         """
         Internal helper for GET requests.
+
+        Args:
+            *segments (str): Path segments.
+            suffix (str): Optional suffix (appended to last segment).
+            query_params (Optional[Dict[str, str]]): URL query parameters.
+
+        Returns:
+            JSONType: Parsed JSON response.
         """
         url = self._build_path(*segments, suffix=suffix)
         return await self.fetch_data(url, query_params)
@@ -239,16 +262,25 @@ class DepsdevAPI:
     ) -> JSONType:
         """
         Internal helper for POST requests.
+
+        Args:
+            *segments (str): Path segments.
+            suffix (str): Optional suffix.
+            json_body (Any): Object to send as JSON body.
+
+        Returns:
+            JSONType: Parsed JSON response.
         """
         url = self._build_path(*segments, suffix=suffix)
         return await self.fetch_data(url, method="POST", json_body=json_body)
 
+    @normalize_package
     async def get_package(self, system_name: str, package_name: str) -> JSONType:
         """
         Fetch basic package info including available versions.
 
         Args:
-            system_name (str): Package system (e.g. "NPM", "PYPI").
+            system_name (str): Package system (e.g. "npm", "pypi").
             package_name (str): Name of the package.
 
         Returns:
@@ -262,6 +294,7 @@ class DepsdevAPI:
         name_enc = encode_url_param(package_name)
         return await self._get("systems", system_name, "packages", name_enc)
 
+    @normalize_package
     async def get_version(
         self, system_name: str, package_name: str, version: str
     ) -> JSONType:
@@ -269,7 +302,7 @@ class DepsdevAPI:
         Fetch detailed info about a specific package version.
 
         Args:
-            system_name (str): Package system (e.g. "NPM", "PYPI").
+            system_name (str): Package system (e.g. "npm", "pypi").
             package_name (str): Name of the package.
             version (str): Version identifier.
 
@@ -323,14 +356,14 @@ class DepsdevAPI:
             raise ValueError("version_requests may not exceed 5000 entries")
 
         payload: Dict[str, Any] = {"requests": []}
-        for system, pkg, ver in version_requests:
-            validate_system(system)
+        for system_name, package, version in version_requests:
+            validate_system(system_name)
             payload["requests"].append(
                 {
                     "versionKey": {
-                        "system": system,
-                        "name": pkg,
-                        "version": ver,
+                        "system": system_name.upper(),
+                        "name": package,
+                        "version": version,
                     }
                 }
             )
@@ -366,6 +399,7 @@ class DepsdevAPI:
                 break
         return all_responses
 
+    @normalize_package
     async def get_requirements(
         self, system_name: str, package_name: str, version: str
     ) -> JSONType:
@@ -397,6 +431,7 @@ class DepsdevAPI:
             suffix=":requirements",
         )
 
+    @normalize_package
     async def get_dependencies(
         self, system_name: str, package_name: str, version: str
     ) -> JSONType:
@@ -428,6 +463,7 @@ class DepsdevAPI:
             suffix=":dependencies",
         )
 
+    @normalize_package
     async def get_dependents(
         self, system_name: str, package_name: str, version: str
     ) -> JSONType:
@@ -463,6 +499,7 @@ class DepsdevAPI:
             suffix=":dependents",
         )
 
+    @normalize_package
     async def get_capabilities(
         self, system_name: str, package_name: str, version: str
     ) -> JSONType:
@@ -559,8 +596,7 @@ class DepsdevAPI:
         return await self._post("projectbatch", json_body=payload)
 
     async def get_all_projects_batch(
-        self,
-        project_ids: List[str],
+        self, project_ids: List[str]
     ) -> List[Dict[str, Any]]:
         """
         Convenience wrapper to retrieve all pages for a given project
@@ -618,6 +654,7 @@ class DepsdevAPI:
         id_enc = encode_url_param(advisory_id)
         return await self._get("advisories", id_enc)
 
+    @normalize_package
     async def get_similarly_named_packages(
         self, system_name: str, package_name: str
     ) -> JSONType:
@@ -673,12 +710,20 @@ class DepsdevAPI:
         if hash_type and hash_value:
             validate_hash(hash_type)
         if version_system:
+            version_system = version_system.upper()
             validate_system(version_system, SUPPORTED_SYSTEMS_QUERY)
+
+        if version_name:
+            if version_system == "NUGET":
+                version_name = version_name.lower()
+            elif version_system == "PYPI":
+                version_name = PEP503_NORMALIZE.sub("-", version_name).lower()
 
         params: Dict[str, str] = {}
         if hash_type and hash_value:
+            b64_hash = base64.b64encode(hash_value.encode("utf-8")).decode("ascii")
             params["hash.type"] = hash_type
-            params["hash.value"] = hash_value
+            params["hash.value"] = b64_hash
         if version_system:
             params["versionKey.system"] = version_system
         if version_name:

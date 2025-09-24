@@ -15,8 +15,11 @@
 # limitations under the License.
 #
 
+import functools
+import re
 import urllib.parse
 from typing import Optional, Sequence
+
 from .constants import (
     SUPPORTED_SYSTEMS,
     SUPPORTED_SYSTEMS_REQUIREMENTS,
@@ -26,6 +29,8 @@ from .constants import (
     SUPPORTED_SYSTEMS_QUERY,
     SUPPORTED_HASHES,
 )
+
+PEP503_NORMALIZE = re.compile(r"[-_.]+")
 
 
 def encode_url_param(param: str) -> str:
@@ -39,6 +44,31 @@ def encode_url_param(param: str) -> str:
         str: A URL-safe, percent-encoded version of `param`.
     """
     return urllib.parse.quote_plus(param)
+
+
+def normalize_package(fn):
+    """
+    Decorator for any async method whose second argument is `package_name`.
+    It:
+      - upper-cases system_name,
+      - lowercases NuGet names,
+      - PEP503-normalizes PyPI names,
+      - leaves other systems untouched.
+    Then calls the wrapped fn with (self, system, normalized_pkg, *rest).
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(self, system_name: str, package_name: str, *args, **kwargs):
+        sys = system_name.upper()
+        if sys == "NUGET":
+            pkg = package_name.lower()
+        elif sys == "PYPI":
+            pkg = PEP503_NORMALIZE.sub("-", package_name).lower()
+        else:
+            pkg = package_name
+        return await fn(self, sys, pkg, *args, **kwargs)
+
+    return wrapper
 
 
 def validate_system(
