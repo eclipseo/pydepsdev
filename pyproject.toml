@@ -4,19 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydepsdev"
-version = "0.2.1"
+version = "0.2.2"
 authors = [
   { name = "Robert-André Mauchin", email = "eclipseo@mauchin.fr" }
 ]
 description = "A Python library for interacting with Open Source Insights API (deps.dev)"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
+license-files = [ "LICENSE" ]
 requires-python = ">=3.8"
 keywords = ["Open Source Insights", "api", "deps.dev"]
 classifiers = [
     "Topic :: Software Development :: Libraries",
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers"
