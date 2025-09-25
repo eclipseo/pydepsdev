@@ -1,3 +1,5 @@
+# MOVED TO https://codeberg.org/eclipseo/pydepsdev
+
 # PyDepsDev
 
 A Python library for interacting with Open Source Insights API (deps.dev).  
